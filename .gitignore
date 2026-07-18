@@ -32,3 +32,6 @@ Thumbs.db
 dist/
 build/
 out/
+
+# Legacy Monorepo
+kwala/
