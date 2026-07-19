@@ -22,12 +22,18 @@ app.use(cors({
     origin: "*"
 }));
 
-app.use('/', priceAlertsRoute);
+// Uptime Monitering
 app.use('/', healthRoute);
-app.use('/', workflowsRoute);
-app.use('/', functionsRoute);
-app.use('/', statusRoute);
+
+// YAML Operations
 app.use('/', yamlRoute);
+
+// app.use('/', priceAlertsRoute);
+
+// app.use('/', workflowsRoute);
+// app.use('/', functionsRoute);// calling any funcation(int)
+// app.use('/', statusRoute);
+
 
 
 

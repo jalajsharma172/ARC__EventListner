@@ -1,67 +1,186 @@
-import express from 'express';
-import fetch from 'node-fetch';
-import { config } from '../config.js';
+import express from "express";
+import { config } from "../config.js";
 
 const router = express.Router();
+const supabase = config.SUPABASE;
 
-router.get('/api/yaml', async (_req, res) => {
-  try {
-    const url = config.SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/yaml?select=*';
-    console.log('Fetching yaml from:', url);
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'apikey': config.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': 'Bearer ' + config.SUPABASE_SERVICE_ROLE_KEY,
-      },
+/**
+ * GET /api/yaml?OwnerAddress=0x123
+ * Get all workflows for an owner
+ */
+router.get("/api/yaml", async (req, res) => {
+  const { OwnerAddress } = req.query;
+
+  if (!OwnerAddress) {
+    return res.status(400).json({
+      error: "OwnerAddress is required",
     });
-    const text = await resp.text();
-    console.log('Supabase yaml raw response:', resp.status, text.slice(0, 300));
-    let json;
-    try { json = JSON.parse(text); } catch { json = text; }
-    if (!resp.ok) return res.status(resp.status).json({ error: json });
-    return res.json(Array.isArray(json) ? json : json);
-  } catch (err) {
-    console.error('yaml fetch error:', err?.message || err);
-    return res.status(500).json({ error: err?.message || String(err) });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("yaml")
+      .select("*")
+      .eq("OwnerAddress", OwnerAddress);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-router.post('/api/yaml', async (req, res) => {
-  const { WorkFlowName, YAML } = req.body || {};
+/**
+ * POST /api/yaml
+ * Create workflow
+ */
+router.post("/api/yaml", async (req, res) => {
+  const { OwnerAddress, WorkFlowName, YAML } = req.body;
 
-  if (!WorkFlowName || !YAML) {
-    return res.status(400).json({ error: 'Missing required fields: WorkFlowName, YAML' });
-  }
-
-  if (!config.SUPABASE_URL || !config.SUPABASE_SERVICE_ROLE_KEY) {
-    return res.status(500).json({ error: 'Supabase not configured on server' });
+  if (!OwnerAddress || !WorkFlowName || !YAML) {
+    return res.status(400).json({
+      error: "OwnerAddress, WorkFlowName and YAML are required",
+    });
   }
 
   try {
-    const sbUrl = `${config.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/yaml`;
-    const resp = await fetch(sbUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': config.SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${config.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify({ WorkFlowName, YAML }),
+    const { data, error } = await supabase
+      .from("yaml")
+      .insert([{ OwnerAddress, WorkFlowName, YAML }])
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/yaml
+ * Replace YAML
+ */
+router.put("/api/yaml", async (req, res) => {
+  const { OwnerAddress, WorkFlowName, YAML } = req.body;
+
+  if (!OwnerAddress || !WorkFlowName || !YAML) {
+    return res.status(400).json({
+      error: "OwnerAddress, WorkFlowName and YAML are required",
     });
+  }
 
-    const json = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      console.error('Supabase yaml insert error', resp.status, json);
-      return res.status(resp.status).json({ error: json });
-    }
+  try {
+    const { data, error } = await supabase
+      .from("yaml")
+      .update({ YAML })
+      .eq("OwnerAddress", OwnerAddress)
+      .eq("WorkFlowName", WorkFlowName)
+      .select()
+      .single();
 
-    console.log(`✅ YAML workflow saved: ${WorkFlowName}`);
-    return res.json({ success: true, data: json });
-  } catch (err) {
-    console.error('Error saving YAML to Supabase:', err?.message || err);
-    return res.status(500).json({ error: err?.message || String(err) });
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PATCH /api/yaml/name
+ * Rename workflow
+ */
+router.patch("/api/yaml/name", async (req, res) => {
+  const { OwnerAddress, OldWorkFlowName, NewWorkFlowName } = req.body;
+
+  if (!OwnerAddress || !OldWorkFlowName || !NewWorkFlowName) {
+    return res.status(400).json({
+      error: "OwnerAddress, OldWorkFlowName and NewWorkFlowName are required",
+    });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("yaml")
+      .update({ WorkFlowName: NewWorkFlowName })
+      .eq("OwnerAddress", OwnerAddress)
+      .eq("WorkFlowName", OldWorkFlowName)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PATCH /api/yaml/status
+ * Activate / Deactivate workflow
+ */
+router.patch("/api/yaml/status", async (req, res) => {
+  const { OwnerAddress, WorkFlowName, IsActive } = req.body;
+
+  if (
+    !OwnerAddress ||
+    !WorkFlowName ||
+    typeof IsActive !== "boolean"
+  ) {
+    return res.status(400).json({
+      error: "OwnerAddress, WorkFlowName and IsActive are required",
+    });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("yaml")
+      .update({ IsActive })
+      .eq("OwnerAddress", OwnerAddress)
+      .eq("WorkFlowName", WorkFlowName)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/yaml
+ * Delete workflow
+ */
+router.delete("/api/yaml", async (req, res) => {
+  const { OwnerAddress, WorkFlowName } = req.body;
+
+  if (!OwnerAddress || !WorkFlowName) {
+    return res.status(400).json({
+      error: "OwnerAddress and WorkFlowName are required",
+    });
+  }
+
+  try {
+    const { error } = await supabase
+      .from("yaml")
+      .delete()
+      .eq("OwnerAddress", OwnerAddress)
+      .eq("WorkFlowName", WorkFlowName);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      success: true,
+      message: "Workflow deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
